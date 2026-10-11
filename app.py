@@ -13,6 +13,11 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 st.set_page_config(page_title="Penerjemah Komik", page_icon="🈂️", layout="wide")
 
 MODELS = ["gpt-5.6", "gpt-5.6-luna", "glm-5.3-mod", "glm-5.3-flash-mod", "glm-5.3-flashx"]
+LANGS = [
+    "Indonesian", "English", "Japanese", "Korean", "Chinese (Simplified)",
+    "Chinese (Traditional)", "Spanish", "French", "German", "Thai", "Vietnamese",
+]
+SRC_LANGS = ["Auto-detect"] + LANGS
 FONTS = [
     "fonts/ComicNeue-Bold.ttf",  # opsional: taruh font sendiri di folder fonts/
     "/usr/share/fonts/truetype/comic-neue/ComicNeue-Bold.ttf",
@@ -116,14 +121,19 @@ def to_b64(img, edge=1568):
 
 
 # ---------------------------------------------------------------- API
-def build_prompt(lang, rtl, sfx):
+def build_prompt(src, lang, rtl, sfx):
+    src_line = (
+        "The source language is not specified; detect it yourself."
+        if src == "Auto-detect"
+        else f"The text on this page is written in {src}."
+    )
     sfx_line = (
         ", and sound effects"
         if sfx
         else ". Ignore sound effects and background signage unless essential to the story"
     )
     order = "right-to-left, top-to-bottom" if rtl else "left-to-right, top-to-bottom"
-    return f"""You are a professional comic/manga translator and typesetter. Look at this comic page and find every piece of text that should be translated: speech bubbles, thought bubbles, narration boxes{sfx_line}.
+    return f"""You are a professional comic/manga translator and typesetter. {src_line} Look at this comic page and find every piece of text that should be translated: speech bubbles, thought bubbles, narration boxes{sfx_line}.
 
 For each text region return:
 - "box": [x1, y1, x2, y2] bounding box of the ORIGINAL text area (the text block inside the bubble/box, not the entire bubble art), normalized to a 0-1000 grid (x1,y1 = top-left; x2,y2 = bottom-right; 0,0 is the top-left corner of the image, 1000,1000 the bottom-right).
@@ -144,12 +154,12 @@ def endpoint(base, fmt):
     return base + ("/chat/completions" if fmt == "openai" else "/messages")
 
 
-def call_api(img, cfg, lang, rtl, sfx):
+def call_api(img, cfg, src, lang, rtl, sfx):
     if not cfg["key"]:
         raise RuntimeError("Isi API key dulu.")
     url = endpoint(cfg["base"], cfg["fmt"])
     b64 = to_b64(img)
-    prompt = build_prompt(lang, rtl, sfx)
+    prompt = build_prompt(src, lang, rtl, sfx)
     if cfg["fmt"] == "openai":
         headers = {"Authorization": f"Bearer {cfg['key']}"}
         body = {
@@ -239,18 +249,44 @@ st.title("🈂️ Penerjemah Komik")
 
 with st.sidebar:
     st.header("Pengaturan")
-    fmt_label = st.selectbox(
-        "Format API gateway", ["OpenAI-compatible (chat/completions)", "Anthropic (messages)"]
-    )
-    fmt = "openai" if fmt_label.startswith("OpenAI") else "anthropic"
-    base = st.text_input("Base URL gateway", value=secret("BASE_URL"), placeholder="https://alamat-gateway/v1")
-    key = st.text_input("API key", value=secret("API_KEY"), type="password")
-    model_pick = st.selectbox("Model", MODELS)
+    s_key, s_base = secret("API_KEY"), secret("BASE_URL")
+    s_fmt = secret("API_FORMAT", "openai")
+    s_model = secret("MODEL", MODELS[0])
+    s_src = secret("SOURCE_LANG", "Auto-detect")
+    s_tgt = secret("TARGET_LANG", "Indonesian")
+
+    if s_key and s_base:
+        st.success("Koneksi diambil dari Secrets.")
+        manual = st.toggle("Ubah koneksi manual")
+    else:
+        manual = True
+    if manual:
+        fmt_label = st.selectbox(
+            "Format API gateway",
+            ["OpenAI-compatible (chat/completions)", "Anthropic (messages)"],
+            index=1 if s_fmt == "anthropic" else 0,
+        )
+        fmt = "openai" if fmt_label.startswith("OpenAI") else "anthropic"
+        base = st.text_input("Base URL gateway", value=s_base, placeholder="https://alamat-gateway/v1")
+        key = st.text_input("API key", value=s_key, type="password")
+    else:
+        fmt, base, key = ("anthropic" if s_fmt == "anthropic" else "openai"), s_base, s_key
+
+    model_options = [s_model] + [m for m in MODELS if m != s_model]
+    model_pick = st.selectbox("Model", model_options)
     model_custom = st.text_input("Model lain (opsional)")
     model = model_custom.strip() or model_pick
+
+    src = st.selectbox(
+        "Bahasa asli komik",
+        SRC_LANGS,
+        index=SRC_LANGS.index(s_src) if s_src in SRC_LANGS else 0,
+        help="Pilih bahasanya kalau sudah tahu, supaya AI tidak perlu menebak.",
+    )
     lang = st.selectbox(
         "Bahasa tujuan",
-        ["Indonesian", "English", "Japanese", "Korean", "Chinese (Simplified)", "Spanish"],
+        LANGS,
+        index=LANGS.index(s_tgt) if s_tgt in LANGS else 0,
     )
     rtl = st.radio("Arah baca", ["Kiri ke kanan", "Kanan ke kiri (manga)"]) != "Kiri ke kanan"
     sfx = st.checkbox("Terjemahkan juga efek suara (SFX)", value=False)
@@ -285,7 +321,7 @@ current = st.selectbox("Halaman", ids, format_func=lambda p: names[p])
 
 def translate(pid):
     page = st.session_state.pages[pid]
-    page["regions"] = call_api(images[pid], cfg, lang, rtl, sfx)
+    page["regions"] = call_api(images[pid], cfg, src, lang, rtl, sfx)
     page["edited"] = None
     page["ver"] += 1
 
