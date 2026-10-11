@@ -1,4 +1,5 @@
 import base64
+import hmac
 import io
 import json
 import re
@@ -262,6 +263,18 @@ def clean(df):
 
 # ---------------------------------------------------------------- UI
 st.title("🈂️ Penerjemah Komik")
+
+# Gerbang kata sandi: aktif jika APP_PASSWORD diisi di Secrets.
+APP_PASSWORD = str(secret("APP_PASSWORD"))
+if APP_PASSWORD and not st.session_state.get("auth_ok"):
+    pw = st.text_input("Kata sandi", type="password")
+    if pw:
+        if hmac.compare_digest(pw.encode(), APP_PASSWORD.encode()):
+            st.session_state.auth_ok = True
+            st.rerun()
+        else:
+            st.error("Kata sandi salah.")
+    st.stop()
 
 with st.sidebar:
     st.header("Pengaturan")
