@@ -12,7 +12,23 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 st.set_page_config(page_title="Penerjemah Komik", page_icon="🈂️", layout="wide")
 
-MODELS = ["gpt-5.6", "gpt-5.6-luna", "glm-5.3-mod", "glm-5.3-flash-mod", "glm-5.3-flashx"]
+MODELS = [
+    "gpt-5.6",
+    "gpt-5.6-luna",
+    "deepseek-v4-flash-vision-exp",
+    "auto",
+    "glm-5.3",
+    "glm-5.3-mod",
+    "glm-5.3-flash",
+    "glm-5.3-flash-mod",
+    "glm-5.3-flashx",
+    "deepseek-v4-flash",
+    "deepseek-v4-flash-0731",
+    "deepseek-v4-mod",
+    "deepseek-v4-pro-0813",
+    "deepseek-v4.1-flash",
+    "deepseek-v4.1-mod",
+]
 LANGS = [
     "Indonesian", "English", "Japanese", "Korean", "Chinese (Simplified)",
     "Chinese (Traditional)", "Spanish", "French", "German", "Thai", "Vietnamese",
@@ -255,22 +271,43 @@ with st.sidebar:
     s_src = secret("SOURCE_LANG", "Auto-detect")
     s_tgt = secret("TARGET_LANG", "Indonesian")
 
-    if s_key and s_base:
+    full = bool(s_key and s_base)
+    if full:
         st.success("Koneksi diambil dari Secrets.")
-        manual = st.toggle("Ubah koneksi manual")
     else:
-        manual = True
-    if manual:
+        if s_key:
+            st.warning("API_KEY terbaca, tetapi BASE_URL belum ada di Secrets.")
+        elif s_base:
+            st.warning("BASE_URL terbaca, tetapi API_KEY belum ada di Secrets.")
+    manual = st.toggle("Ubah koneksi manual") if full else False
+
+    if manual or not full:
         fmt_label = st.selectbox(
             "Format API gateway",
             ["OpenAI-compatible (chat/completions)", "Anthropic (messages)"],
             index=1 if s_fmt == "anthropic" else 0,
         )
         fmt = "openai" if fmt_label.startswith("OpenAI") else "anthropic"
-        base = st.text_input("Base URL gateway", value=s_base, placeholder="https://alamat-gateway/v1")
-        key = st.text_input("API key", value=s_key, type="password")
     else:
-        fmt, base, key = ("anthropic" if s_fmt == "anthropic" else "openai"), s_base, s_key
+        fmt = "anthropic" if s_fmt == "anthropic" else "openai"
+
+    # Kolom hanya tampil jika Secret-nya tidak ada (atau saat mode manual).
+    # Nilai dari Secrets tidak pernah ditampilkan di kolom.
+    if manual or not s_base:
+        base = st.text_input(
+            "Base URL gateway",
+            placeholder="https://alamat-gateway/v1" if not s_base else "kosongkan untuk memakai Secrets",
+        ).strip() or s_base
+    else:
+        base = s_base
+    if manual or not s_key:
+        key = st.text_input(
+            "API key",
+            type="password",
+            placeholder="" if not s_key else "kosongkan untuk memakai Secrets",
+        ).strip() or s_key
+    else:
+        key = s_key
 
     model_options = [s_model] + [m for m in MODELS if m != s_model]
     model_pick = st.selectbox("Model", model_options)
